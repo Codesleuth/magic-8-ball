@@ -26,5 +26,8 @@ These rules apply to humans and AI coding agents.
 
 ## Stack
 
-Not chosen yet (see SPEC open question Q5). When it is chosen, add the build,
-test and lint commands here.
+Python, installed with `pipx` ([ADR 0002](docs/adr/0002-python.md)). The
+CLI talks to the model over HTTP only. Do not add ML libraries to the CLI.
+
+No code yet. When the project skeleton lands, add the build, test and lint
+commands here.

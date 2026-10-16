@@ -1,7 +1,8 @@
 # Magic 8 Ball — Spec (draft)
 
-Status: **draft**. Items marked **OPEN** need a decision before the build
-starts. Each one has a recommended default.
+Status: **draft**. Decided items link to their ADR. Items marked **OPEN**
+still need a decision before the build starts. Each one has a recommended
+default.
 
 ## 1. Goal
 
@@ -15,6 +16,8 @@ question, shakes the ball, and sees one of the
 - No GUI or web app (for now).
 - No answer history, accounts or telemetry.
 - No training or fine-tuning of models.
+- No offline fallback. If the model is not available, the ball shows an error
+  (see 6.3).
 
 ## 3. User flow
 
@@ -42,43 +45,69 @@ magic8 [QUESTION]            Ask a question. Prompts if QUESTION is missing.
   --version, --help
 ```
 
-Exit codes: `0` answer shown, `1` usage error, `2` backend error (only if
-fallback is off, see 6.3).
+Exit codes:
 
-## 5. Configuration
+| Code | Meaning |
+| --- | --- |
+| `0` | Answer shown |
+| `1` | Usage error (bad flag, empty question) |
+| `2` | Backend error (see 6.3) |
+
+## 5. Stack and install
+
+Decided in [ADR 0002](adr/0002-python.md).
+
+- Python. The CLI is a normal Python package with a `magic8` console script.
+- Users install it with `pipx install` (PyPI release later).
+- Keep runtime dependencies small. No ML libraries in the CLI process: the
+  model runs in a separate server ([ADR 0001](adr/0001-use-systemone-api.md)).
+
+## 6. Configuration
 
 Read from environment variables (and from `.env` in the working directory).
 
-| Variable | Meaning | Example |
+| Variable | Meaning | Default |
 | --- | --- | --- |
-| `MAGIC8_BASE_URL` | Base URL of a `/v1/systemone` server | `https://api.typesafe.ai` or `http://127.0.0.1:8000` |
-| `MAGIC8_API_KEY` | Bearer token, if the server needs one | — |
-| `MAGIC8_MODEL` | Model name sent in the request | `jev-latest` |
+| `MAGIC8_BASE_URL` | Base URL of a `/v1/systemone` server | `http://127.0.0.1:8000` (local `laya-serve`) |
+| `MAGIC8_API_KEY` | Bearer token, if the server needs one | empty (not sent) |
+| `MAGIC8_MODEL` | Model name sent in the request | empty (field not sent; the server picks) |
 | `MAGIC8_TIMEOUT_MS` | Request timeout | `5000` |
 
-## 6. How the decision works
+The default backend is a local Laya server
+([ADR 0005](adr/0005-default-backend-local-laya.md)). To use Jev instead, set
+`MAGIC8_BASE_URL=https://api.typesafe.ai`, `MAGIC8_API_KEY` and
+`MAGIC8_MODEL=jev-latest`.
 
-### 6.1 The request
+## 7. How the decision works
+
+### 7.1 The request
 
 One `POST {MAGIC8_BASE_URL}/v1/systemone` with:
 
 - `state`: the user's question, wrapped in a short fixed frame.
 - one `choice` question. `criteria` has the 20 answer keys from
   [answers.md](answers.md). The value for each key is the answer text.
+- `model`: only if `MAGIC8_MODEL` (or `--model`) is set.
 
 See [decision-models.md](decision-models.md) for the full shape.
 
-### 6.2 Picking the answer from the response
+### 7.2 Picking the answer from the response
 
-The model returns a probability for each of the 20 answers.
+Decided in [ADR 0003](adr/0003-weighted-random-pick.md).
 
-**OPEN Q1 — argmax or sample?**
+The model returns a probability for each of the 20 answers. The ball picks
+one answer at random, **weighted by `probabilities`**. The model sets the
+odds; the shake adds chance. Asking the same question again can give a
+different answer, like the real ball.
 
-- *Argmax*: always show `choice`. The same question gives the same answer.
-  This feels less like a toy.
-- *Sample* (recommended): pick an answer at random, weighted by
-  `probabilities`. The model sets the odds; the shake adds chance. Asking
-  again can give a different answer, like the real ball.
+- Use only keys that are in the answer set. Ignore any other keys.
+- If the probabilities do not sum to 1, normalise them. If they sum to 0, or
+  no valid key is present, treat it as a backend error (7.3).
+- The random source must accept a seed so tests are repeatable. The seed is
+  not a user flag.
+- `--json` and `--verbose` show the full probabilities and which answer was
+  picked. They also show the model's own top `choice`, which can be
+  different.
 
 **OPEN Q2 — one step or two steps?**
 
@@ -90,47 +119,65 @@ The model returns a probability for each of the 20 answers.
 **OPEN Q3 — use `confidence`?** Proposal: if `confidence` is below a
 threshold (for example 0.2), show a non-committal answer ("Reply hazy, try
 again."). This matches the toy and handles questions that are not yes/no.
+With weighted sampling this is less needed, because low-confidence responses
+already spread the odds. Recommended: leave it out of v0.1.
 
-### 6.3 When the backend fails
+### 7.3 When the backend fails
 
-**OPEN Q4 — fallback.** If there is no backend, or the call fails or times
-out:
+Decided in [ADR 0004](adr/0004-fail-on-backend-error.md).
 
-- *Fallback to classic* (recommended): pick one of the 20 answers uniformly
-  at random, like the real toy. Show a short note only with `--verbose`.
-- *Fail*: print an error and exit `2`.
+If the backend cannot be reached, the call fails or times out, or the
+response is not valid, the ball does **not** make up an answer. It:
 
-Always check that the returned key is one of the 20. If not, treat it as a
-failure.
+1. Stops the shake animation.
+2. Prints a short error to stderr. No answer is shown.
+3. Exits with code `2`.
 
-## 7. The "shake"
+The error says what went wrong and what to do next:
+
+| Case | Message (example) |
+| --- | --- |
+| Connection refused at the default URL | `Can't reach the decision model at http://127.0.0.1:8000. Start a local Laya server with: laya-serve` |
+| Connection refused at another URL | `Can't reach the decision model at <url>.` |
+| Timeout | `The decision model did not answer in 5 s.` |
+| HTTP 401 / 403 | `The decision model rejected the API key. Check MAGIC8_API_KEY.` |
+| Other HTTP error | `The decision model returned an error (HTTP <code>).` plus the server message with `--verbose` |
+| Bad response (missing fields, no valid key, probabilities sum to 0) | `The decision model sent a response the ball can't read.` |
+
+With `--json`, print `{"error": "<code>", "message": "<text>"}` to stdout
+as well, and still exit `2`.
+
+## 8. The "shake"
 
 - Default: wait for Enter, then play a short text animation (about 1–2 s)
   while the request runs. The answer shows when both are done.
 - `--no-shake` and non-TTY output (pipes, CI) skip the wait and animation.
 - Animation must work in a plain 80-column terminal. Colour is optional and
   off when `NO_COLOR` is set.
+- On a backend error, stop the animation at once and show the error.
 
-## 8. Quality
+## 9. Quality
 
 - Unit tests for: answer set (exactly 20, stable keys), response parsing,
-  sampling (seeded), confidence rule, fallback.
+  weighted sampling (seeded), error cases and exit codes.
 - A fake `/v1/systemone` server or HTTP mock for tests. No real model calls
   in CI.
-- One optional, manual smoke test against a real backend (Jev or local Laya).
+- One optional, manual smoke test against a local `laya-serve` (and Jev if a
+  key is available).
 
-## 9. Open questions
+## 10. Decisions and open questions
 
-| # | Question | Recommended default |
+| # | Question | Decision |
 | --- | --- | --- |
-| Q1 | Argmax or sample from probabilities? | Sample |
-| Q2 | One `choice` over 20, or group first? | One step |
-| Q3 | Low confidence → non-committal answer? | Yes, threshold to tune |
-| Q4 | Fallback when the backend fails? | Classic random answer |
-| Q5 | Language and runtime? | TypeScript on Node.js (single `npx` install) — or Python, which matches Laya's own tooling |
-| Q6 | Default backend? | Jev hosted (no 2.3 GB download); document local Laya as the private, free option |
-| Q7 | License? | Not chosen yet — owner decides |
-| Q8 | How to distribute? | npm package (if TS) or PyPI / `pipx` (if Python) |
+| Q1 | Argmax or sample from probabilities? | **Decided:** weighted random sample ([ADR 0003](adr/0003-weighted-random-pick.md)) |
+| Q2 | One `choice` over 20, or group first? | **OPEN.** Recommended: one step |
+| Q3 | Low confidence → non-committal answer? | **OPEN.** Recommended: not in v0.1 |
+| Q4 | What to do when the backend fails? | **Decided:** show an error, exit `2` ([ADR 0004](adr/0004-fail-on-backend-error.md)) |
+| Q5 | Language and runtime? | **Decided:** Python ([ADR 0002](adr/0002-python.md)) |
+| Q6 | Default backend? | **Decided:** local Laya server ([ADR 0005](adr/0005-default-backend-local-laya.md)) |
+| Q7 | License? | **Decided:** no license for now. Revisit before a public release. |
+| Q8 | How to distribute? | **Decided:** `pipx` install; PyPI later ([ADR 0002](adr/0002-python.md)) |
+| Q9 | Lowest Python version and HTTP library? | **OPEN.** Recommended: Python 3.11+, `httpx`. Can be decided at build time. |
 
 When a question is decided, update this file and add an ADR in
 [adr/](adr/).

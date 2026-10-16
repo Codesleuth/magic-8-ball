@@ -34,9 +34,21 @@ The ball only ever shows one of the
 | [docs/adr/](docs/adr/) | Architecture decision records |
 | [AGENTS.md](AGENTS.md) | Rules for humans and AI agents who work in this repo |
 
-## Configuration (planned)
+## Setup (planned)
 
-The ball talks to any server that uses the `/v1/systemone` API. Copy
+The ball is a Python CLI, installed with `pipx`. By default it uses a local
+[Laya](https://huggingface.co/convaiinnovations/laya) server. Questions stay
+on your machine.
+
+```sh
+pip install "laya[serve]"
+LAYA_PRELOAD=1 laya-serve        # first run downloads about 2.3 GB
+```
+
+If the model server is not running, the ball shows an error. It does not
+guess an answer.
+
+To use another `/v1/systemone` server (for example hosted Jev), copy
 `.env.example` to `.env` and set the values. See
 [docs/decision-models.md](docs/decision-models.md).
 

@@ -62,6 +62,19 @@ LAYA_PRELOAD=1 laya-serve          # CPU works; CUDA / MPS used if present
 The three Laya checkpoints are about 2.3 GB on disk. They download on first
 use.
 
+Laya server notes (from the Laya README):
+
+- The `model` field is optional. If it is missing, the router picks a
+  checkpoint. You can pin one with `english`, `multilingual` or
+  `typed-decisions`. `jev-1` also means "router picks".
+- The port is set with `LAYA_PORT` (default `8000`).
+- If `LAYA_API_KEY` is set on the server, clients must send
+  `Authorization: Bearer <key>`.
+- A `choice` question with more than 100 options is rejected (HTTP 413). The
+  option texts must also fit a token budget (192–256 tokens, depending on
+  the checkpoint), or the request is rejected (HTTP 422). Our 20 short
+  answers should fit; check this in the smoke test.
+
 ### Example request for the ball
 
 ```json
@@ -115,5 +128,5 @@ probability. `confidence` is 0–1.
   model can only return one of our option keys, so the user cannot make the
   ball print other text. Still validate that the returned key is one of the
   20.
-- **Offline / no key.** Decide what the ball does if no backend is set or the
-  call fails. See [SPEC.md](SPEC.md).
+- **Offline / no server.** The ball shows an error and exits with code `2`.
+  It does not guess an answer. See [SPEC.md](SPEC.md) section 7.3.
