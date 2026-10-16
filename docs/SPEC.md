@@ -29,8 +29,11 @@ question, shakes the ball, and sees one of the
 $ magic8 "Should I learn the accordion?"
   🎱  Shake the ball... (press Enter)
   ~ ~ ~ the die floats up ~ ~ ~
-  ▲  SIGNS POINT TO YES  ▲
+  ▲  Signs point to yes.  ▲
 ```
+
+The answer is shown with the exact text from [answers.md](answers.md),
+including case and punctuation.
 
 ## 4. CLI interface
 
@@ -49,8 +52,9 @@ Exit codes:
 | Code | Meaning |
 | --- | --- |
 | `0` | Answer shown |
-| `1` | Usage error (bad flag, empty question) |
+| `1` | Usage error (bad flag, empty question, invalid `MAGIC8_TIMEOUT_MS`) |
 | `2` | Backend error (see 7.3) |
+| `130` | Stopped with Ctrl-C (shell convention) |
 
 ## 5. Stack and install
 
@@ -73,6 +77,10 @@ Read from environment variables (and from `.env` in the working directory).
 | `MAGIC8_API_KEY` | Bearer token, if the server needs one | empty (not sent) |
 | `MAGIC8_MODEL` | Model name sent in the request | empty (field not sent; the server picks) |
 | `MAGIC8_TIMEOUT_MS` | Request timeout | `5000` |
+
+The real environment wins over `.env`, and `--backend` / `--model` win over
+both. An empty value means "not set". `MAGIC8_TIMEOUT_MS` must be a whole
+number above 0; anything else is a usage error (exit `1`).
 
 The default backend is a local Laya server
 ([ADR 0005](adr/0005-default-backend-local-laya.md)). To use Jev instead, set
@@ -132,23 +140,30 @@ response is not valid, the ball does **not** make up an answer. It:
 
 The error says what went wrong and what to do next:
 
-| Case | Message (example) |
-| --- | --- |
-| Connection refused at the default URL | `Can't reach the decision model at http://127.0.0.1:8000. Start a local Laya server with: laya-serve` |
-| Connection refused at another URL | `Can't reach the decision model at <url>.` |
-| Timeout | `The decision model did not answer in 5 s.` |
-| HTTP 401 / 403 | `The decision model rejected the API key. Check MAGIC8_API_KEY.` |
-| Other HTTP error | `The decision model returned an error (HTTP <code>).` plus the server message with `--verbose` |
-| Bad response (missing fields, no valid key, probabilities sum to 0) | `The decision model sent a response the ball can't read.` |
+| Case | `--json` code | Message (example) |
+| --- | --- | --- |
+| Connection refused at the default URL | `unreachable` | `Can't reach the decision model at http://127.0.0.1:8000. Start a local Laya server with: laya-serve` |
+| Connection refused at another URL | `unreachable` | `Can't reach the decision model at <url>.` |
+| Timeout | `timeout` | `The decision model did not answer in 5 s.` |
+| HTTP 401 / 403 | `auth` | `The decision model rejected the API key. Check MAGIC8_API_KEY.` |
+| Other HTTP error | `http_error` | `The decision model returned an error (HTTP <code>).` plus the server message with `--verbose` |
+| Bad response (missing fields, no valid key, probabilities sum to 0) | `bad_response` | `The decision model sent a response the ball can't read.` |
 
 With `--json`, print `{"error": "<code>", "message": "<text>"}` to stdout
 as well, and still exit `2`.
+
+A response is read like this. `answers.answer.probabilities` must be an
+object. A value for one of the 20 keys must be a number that is 0 or more;
+anything else makes the response bad. `choice`, `confidence` and `model` are
+optional: they are shown when present, and `choice` is shown only if it is
+one of the 20 keys.
 
 ## 8. The "shake"
 
 - Default: wait for Enter, then play a short text animation (about 1–2 s)
   while the request runs. The answer shows when both are done.
-- `--no-shake` and non-TTY output (pipes, CI) skip the wait and animation.
+- `--no-shake`, `--json`, and non-TTY input or output (pipes, CI) skip the
+  wait and animation. `--json` skips them so stdout holds only JSON.
 - Animation must work in a plain 80-column terminal. Colour is optional and
   off when `NO_COLOR` is set.
 - On a backend error, stop the animation at once and show the error.

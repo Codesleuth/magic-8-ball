@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "magic-8-ball"
+dynamic = ["version"]
+description = "A Magic 8 Ball for the command line, decided by a decision model."
+requires-python = ">=3.11"
+dependencies = ["httpx>=0.27"]
+
+[project.scripts]
+magic8 = "magic8.cli:run"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.hatch.version]
+path = "src/magic8/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/magic8"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

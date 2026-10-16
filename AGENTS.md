@@ -29,5 +29,16 @@ These rules apply to humans and AI coding agents.
 Python, installed with `pipx` ([ADR 0002](docs/adr/0002-python.md)). The
 CLI talks to the model over HTTP only. Do not add ML libraries to the CLI.
 
-No code yet. When the project skeleton lands, add the build, test and lint
-commands here.
+The code is in `src/magic8/`, the tests in `tests/`. Development uses
+[uv](https://docs.astral.sh/uv/):
+
+```sh
+uv sync                      # create .venv with the package and dev tools
+uv run pytest -q             # tests (fake server and HTTP mocks only)
+uv run ruff check .          # lint
+uv run ruff format --check . # formatting
+uv run magic8 --help         # run the CLI from the checkout
+```
+
+CI (`.github/workflows/ci.yml`) runs lint and the tests on Python 3.11–3.14
+for every push and pull request.
