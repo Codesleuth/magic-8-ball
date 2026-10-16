@@ -1,8 +1,7 @@
-# Magic 8 Ball — Spec (draft)
+# Magic 8 Ball — Spec (v0.1)
 
-Status: **draft**. Decided items link to their ADR. Items marked **OPEN**
-still need a decision before the build starts. Each one has a recommended
-default.
+Status: **approved for v0.1** (2026-10-17). Decided items link to their ADR.
+To change a decision, write a new ADR in [adr/](adr/).
 
 ## 1. Goal
 
@@ -17,7 +16,7 @@ question, shakes the ball, and sees one of the
 - No answer history, accounts or telemetry.
 - No training or fine-tuning of models.
 - No offline fallback. If the model is not available, the ball shows an error
-  (see 6.3).
+  (see 7.3).
 
 ## 3. User flow
 
@@ -33,7 +32,7 @@ $ magic8 "Should I learn the accordion?"
   ▲  SIGNS POINT TO YES  ▲
 ```
 
-## 4. CLI interface (proposed)
+## 4. CLI interface
 
 ```text
 magic8 [QUESTION]            Ask a question. Prompts if QUESTION is missing.
@@ -51,13 +50,15 @@ Exit codes:
 | --- | --- |
 | `0` | Answer shown |
 | `1` | Usage error (bad flag, empty question) |
-| `2` | Backend error (see 6.3) |
+| `2` | Backend error (see 7.3) |
 
 ## 5. Stack and install
 
 Decided in [ADR 0002](adr/0002-python.md).
 
-- Python. The CLI is a normal Python package with a `magic8` console script.
+- Python 3.11 or later. The CLI is a normal Python package with a `magic8`
+  console script.
+- HTTP client: `httpx`.
 - Users install it with `pipx install` (PyPI release later).
 - Keep runtime dependencies small. No ML libraries in the CLI process: the
   model runs in a separate server ([ADR 0001](adr/0001-use-systemone-api.md)).
@@ -109,18 +110,14 @@ different answer, like the real ball.
   picked. They also show the model's own top `choice`, which can be
   different.
 
-**OPEN Q2 — one step or two steps?**
+**Q2 — one step (decided).** Send one `choice` over all 20 answers. Do not
+pick a group first. A two-step flow (group, then answer) can come later if
+Laya does badly with 20 options.
 
-- *One step* (recommended to start): one `choice` over all 20 answers.
-- *Two steps*: first a `choice` over the 3 groups (affirmative /
-  non-committal / negative), then a random answer in that group. Fewer
-  options per call (better for Laya), but less nuance.
-
-**OPEN Q3 — use `confidence`?** Proposal: if `confidence` is below a
-threshold (for example 0.2), show a non-committal answer ("Reply hazy, try
-again."). This matches the toy and handles questions that are not yes/no.
-With weighted sampling this is less needed, because low-confidence responses
-already spread the odds. Recommended: leave it out of v0.1.
+**Q3 — no confidence rule in v0.1 (decided).** Do not replace low-confidence
+results with "Reply hazy, try again." Weighted sampling already spreads the
+odds when the model is unsure. `confidence` is shown only with `--json` and
+`--verbose`.
 
 ### 7.3 When the backend fails
 
@@ -165,19 +162,18 @@ as well, and still exit `2`.
 - One optional, manual smoke test against a local `laya-serve` (and Jev if a
   key is available).
 
-## 10. Decisions and open questions
+## 10. Decisions
 
 | # | Question | Decision |
 | --- | --- | --- |
 | Q1 | Argmax or sample from probabilities? | **Decided:** weighted random sample ([ADR 0003](adr/0003-weighted-random-pick.md)) |
-| Q2 | One `choice` over 20, or group first? | **OPEN.** Recommended: one step |
-| Q3 | Low confidence → non-committal answer? | **OPEN.** Recommended: not in v0.1 |
+| Q2 | One `choice` over 20, or group first? | **Decided:** one step, one `choice` over 20 (7.2) |
+| Q3 | Low confidence → non-committal answer? | **Decided:** not in v0.1 (7.2) |
 | Q4 | What to do when the backend fails? | **Decided:** show an error, exit `2` ([ADR 0004](adr/0004-fail-on-backend-error.md)) |
 | Q5 | Language and runtime? | **Decided:** Python ([ADR 0002](adr/0002-python.md)) |
 | Q6 | Default backend? | **Decided:** local Laya server ([ADR 0005](adr/0005-default-backend-local-laya.md)) |
 | Q7 | License? | **Decided:** no license for now. Revisit before a public release. |
 | Q8 | How to distribute? | **Decided:** `pipx` install; PyPI later ([ADR 0002](adr/0002-python.md)) |
-| Q9 | Lowest Python version and HTTP library? | **OPEN.** Recommended: Python 3.11+, `httpx`. Can be decided at build time. |
+| Q9 | Lowest Python version and HTTP library? | **Decided:** Python 3.11+, `httpx` (section 5) |
 
-When a question is decided, update this file and add an ADR in
-[adr/](adr/).
+To change a decision, update this file and add an ADR in [adr/](adr/).

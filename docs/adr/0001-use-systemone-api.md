@@ -1,6 +1,6 @@
 # 0001. Talk to decision models through the `/v1/systemone` API
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-17
 
 ## Context

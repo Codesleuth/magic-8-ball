@@ -122,8 +122,8 @@ probability. `confidence` is 0–1.
   overconfident. This matters less for a toy, but do not treat the numbers as
   true odds.
 - **Option limit.** 20 answers is at Laya's comfortable limit. A two-step
-  design (first pick a group, then an answer in the group) avoids this. See
-  the open questions in [SPEC.md](SPEC.md).
+  design (first pick a group, then an answer in the group) avoids this. v0.1
+  uses one step; see Q2 in [SPEC.md](SPEC.md).
 - **Prompt injection.** The user's question goes into `state`. A decision
   model can only return one of our option keys, so the user cannot make the
   ball print other text. Still validate that the returned key is one of the

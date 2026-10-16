@@ -23,4 +23,4 @@ console script. Users install it with `pipx install`. Publish to PyPI later.
 - The CLI still talks to the model over HTTP
   ([ADR 0001](0001-use-systemone-api.md)). Do not import Laya or other ML
   libraries into the CLI.
-- The lowest Python version and the HTTP library are still open (SPEC Q9).
+- Lowest version Python 3.11; HTTP client `httpx` (SPEC Q9, decided 2026-10-17).

@@ -24,11 +24,12 @@ The ball only ever shows one of the
 
 ## Status
 
-**Pre-build.** The repo has the spec and design notes. There is no code yet.
+**Spec approved for v0.1.** The repo has the spec and design notes. The v0.1
+build is in progress.
 
 | Document | What it is |
 | --- | --- |
-| [docs/SPEC.md](docs/SPEC.md) | Product spec (draft) and open questions |
+| [docs/SPEC.md](docs/SPEC.md) | Product spec (approved for v0.1) and decisions |
 | [docs/answers.md](docs/answers.md) | The 20 classic answers, the fixed answer set |
 | [docs/decision-models.md](docs/decision-models.md) | Notes on Jev, Laya and the shared `/v1/systemone` API |
 | [docs/adr/](docs/adr/) | Architecture decision records |
