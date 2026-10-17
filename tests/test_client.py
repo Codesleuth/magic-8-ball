@@ -241,13 +241,6 @@ def _read_timeout(request):
     raise httpx.ReadTimeout("slow", request=request)
 
 
-def _bad_encoding(status):
-    def handler(request):
-        return httpx.Response(status, content=b"not gzip", headers={"Content-Encoding": "gzip"})
-
-    return handler
-
-
 def make_scenario(kind, fake_server, closed_port_url):
     """Return (argv, env, transport, code, message) for one error kind."""
     argv = ["Will it rain?"]
@@ -272,17 +265,19 @@ def make_scenario(kind, fake_server, closed_port_url):
     if kind == "timeout-mock":
         transport = httpx.MockTransport(_read_timeout)
         return argv, env, transport, "timeout", "The decision model did not answer in 5 s."
+    argv += ["--backend", fake_server.url]
     if kind.startswith("bad-encoding-"):
-        status = int(kind[-3:])
-        transport = httpx.MockTransport(_bad_encoding(status))
-        if status == 200:
-            return argv, env, transport, "bad_response", BAD_RESPONSE_MESSAGE
-        if status == 500:
+        # The status decides the case; a 2xx body that can't be decoded is a bad response.
+        fake_server.status = int(kind[-3:])
+        fake_server.headers = {"Content-Encoding": "gzip"}
+        fake_server.body = b"not gzip"
+        if fake_server.status == 401:
+            message = "The decision model rejected the API key. Check MAGIC8_API_KEY."
+            return argv, env, transport, "auth", message
+        if fake_server.status == 500:
             message = "The decision model returned an error (HTTP 500)."
             return argv, env, transport, "http_error", message
-        message = "The decision model rejected the API key. Check MAGIC8_API_KEY."
-        return argv, env, transport, "auth", message
-    argv += ["--backend", fake_server.url]
+        return argv, env, transport, "bad_response", BAD_RESPONSE_MESSAGE
     if kind in ("auth-401", "auth-403"):
         fake_server.status = int(kind[-3:])
         message = "The decision model rejected the API key. Check MAGIC8_API_KEY."
