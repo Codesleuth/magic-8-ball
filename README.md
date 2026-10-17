@@ -100,3 +100,4 @@ Set `NO_COLOR` to turn off colour.
 
 Read [AGENTS.md](AGENTS.md) first. Use the issue templates for features and
 bugs. Record significant design choices as an ADR in [docs/adr/](docs/adr/).
+Runner smoke test 2026-10-17
