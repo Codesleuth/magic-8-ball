@@ -26,8 +26,10 @@ These rules apply to humans and AI coding agents.
 
 ## Stack
 
-Python, installed with `pipx` ([ADR 0002](docs/adr/0002-python.md)). The
-CLI talks to the model over HTTP only. Do not add ML libraries to the CLI.
+Python, installed with `uv tool install`; `pipx install` also works
+([ADR 0002](docs/adr/0002-python.md),
+[ADR 0006](docs/adr/0006-install-with-uv.md)). The CLI talks to the model
+over HTTP only. Do not add ML libraries to the CLI.
 
 The code is in `src/magic8/`, the tests in `tests/`. Development uses
 [uv](https://docs.astral.sh/uv/):
