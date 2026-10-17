@@ -154,3 +154,62 @@ def test_bad_timeout_via_cli_exits_1(run_cli, closed_port_url, raw):
     assert code == 1
     assert out == ""
     assert "MAGIC8_TIMEOUT_MS" in err
+
+
+@pytest.mark.parametrize(
+    "raw", ["99999999999999999999", "2147483647", "2147483648"], ids=["huge", "max", "max-plus-1"]
+)
+def test_timeout_above_max_is_clamped(raw):
+    assert load_config({"MAGIC8_TIMEOUT_MS": raw}, None).timeout_ms == 2147483647
+
+
+def test_huge_timeout_via_cli_is_clamped_not_rejected(run_cli, closed_port_url):
+    url = closed_port_url()
+    code, _, err = run_cli(
+        "Will it rain?",
+        "--backend",
+        url,
+        env={"MAGIC8_TIMEOUT_MS": "99999999999999999999"},
+    )
+    assert code == 2
+    assert f"Can't reach the decision model at {url}." in err
+
+
+API_KEY_MESSAGE = "MAGIC8_API_KEY must hold only printable ASCII characters."
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["clé", "tok\nen", "tok\ten", "\x7f"],
+    ids=["non-ascii", "newline", "tab", "del"],
+)
+def test_api_key_must_be_printable_ascii(key):
+    with pytest.raises(ConfigError) as exc:
+        load_config({"MAGIC8_API_KEY": key}, None)
+    assert str(exc.value) == API_KEY_MESSAGE
+
+
+def test_api_key_from_dotenv_must_be_printable_ascii(tmp_path):
+    path = write_env(tmp_path, "MAGIC8_API_KEY=clé\n")
+    with pytest.raises(ConfigError) as exc:
+        load_config({}, path)
+    assert str(exc.value) == API_KEY_MESSAGE
+
+
+def test_api_key_with_space_and_punctuation_is_valid():
+    key = "abc DEF-123._~+/="
+    assert load_config({"MAGIC8_API_KEY": key}, None).api_key == key
+
+
+def test_bad_api_key_via_cli_exits_1_without_request(run_cli, fake_server):
+    code, out, err = run_cli(
+        "Will it rain?",
+        "--backend",
+        fake_server.url,
+        env={"MAGIC8_API_KEY": "clé-secret"},
+    )
+    assert code == 1
+    assert out == ""
+    assert "MAGIC8_API_KEY" in err
+    assert "clé-secret" not in err
+    assert fake_server.requests == []
