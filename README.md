@@ -109,3 +109,6 @@ These Dominiux Labs bots may open, review and merge pull requests on this repo:
 - `dominiux-gilfoyle[bot]` opens the engineering pull requests.
 - `dominiux-gabe[bot]` reviews pull requests for QA.
 - `dominiux-danesh[bot]` runs the Accounter parity and prototype checks.
+
+QA reviews of bot-authored pull requests are posted by `dominiux-gabe[bot]`, and a
+pull request is not merged until that review approves it.
