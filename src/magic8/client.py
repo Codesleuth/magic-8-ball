@@ -3,6 +3,7 @@
 import math
 import time
 from dataclasses import dataclass
+from fractions import Fraction
 
 import httpx
 
@@ -54,6 +55,17 @@ def _is_number(value: object) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool)
 
 
+def _finite_float(value: object) -> float | None:
+    """The value as a finite float, or None if it is not a number a float can hold."""
+    if not _is_number(value):
+        return None
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) else None
+
+
 def _bad_response() -> BackendError:
     return BackendError("bad_response", BAD_RESPONSE_MESSAGE)
 
@@ -71,30 +83,32 @@ def parse_response(data: object, latency_ms: int = 0) -> ModelResult:
     if not isinstance(raw, dict):
         raise _bad_response()
 
-    known: dict[str, float] = {}
+    # Exact arithmetic: a value may be an int too big for a float, and finite floats
+    # can sum past the float range. Both are valid (SPEC 7.3).
+    known: dict[str, Fraction] = {}
     for key, value in raw.items():
         if key not in BY_KEY:
             continue
-        if not _is_number(value) or not math.isfinite(value) or value < 0:
+        if not _is_number(value) or (isinstance(value, float) and not math.isfinite(value)):
             raise _bad_response()
-        known[key] = float(value)
+        if value < 0:
+            raise _bad_response()
+        known[key] = Fraction(value)
     if not known:
         raise _bad_response()
     total = sum(known.values())
-    if total <= 0 or not math.isfinite(total):
+    if total == 0:
         raise _bad_response()
 
-    probabilities = {a.key: known.get(a.key, 0.0) / total for a in ANSWERS}
+    probabilities = {a.key: float(known.get(a.key, 0) / total) for a in ANSWERS}
 
     choice = answer.get("choice")
     model_choice = choice if isinstance(choice, str) and choice in BY_KEY else None
-    conf = answer.get("confidence")
-    confidence = float(conf) if _is_number(conf) and math.isfinite(conf) else None
     model = data.get("model")
     return ModelResult(
         probabilities=probabilities,
         model_choice=model_choice,
-        confidence=confidence,
+        confidence=_finite_float(answer.get("confidence")),
         model=model if isinstance(model, str) else None,
         latency_ms=latency_ms,
     )
@@ -111,7 +125,13 @@ def ask(
     try:
         with httpx.Client(transport=transport, timeout=config.timeout_ms / 1000) as client:
             started = time.monotonic()
-            response = client.post(url, json=body, headers=headers)
+            # Stream so the status is known even when the body can't be decoded (SPEC 7.3).
+            with client.stream("POST", url, json=body, headers=headers) as response:
+                try:
+                    response.read()
+                    decoded = True
+                except httpx.DecodingError:
+                    decoded = False
             latency_ms = round((time.monotonic() - started) * 1000)
     except httpx.TimeoutException as exc:
         secs = f"{config.timeout_ms / 1000:g}"
@@ -133,10 +153,12 @@ def ask(
         raise BackendError(
             "http_error",
             f"The decision model returned an error (HTTP {status}).",
-            response.text.strip()[:500] or None,
+            (response.text.strip()[:500] or None) if decoded else None,
         )
+    if not decoded:
+        raise _bad_response()
     try:
         data = response.json()
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         raise _bad_response() from exc
     return parse_response(data, latency_ms)
