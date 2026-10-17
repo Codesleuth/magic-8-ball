@@ -70,6 +70,7 @@ class FakeServer:
     status: int = 200
     body: Any = field(default_factory=lambda: build_good_response({"yes": 1.0}))
     delay: float = 0.0
+    headers: dict[str, str] = field(default_factory=dict)
     requests: list[RecordedRequest] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -99,6 +100,8 @@ class FakeServer:
                     self.send_response(outer.status)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Content-Length", str(len(payload)))
+                    for name, value in outer.headers.items():
+                        self.send_header(name, value)
                     self.end_headers()
                     self.wfile.write(payload)
                 except (BrokenPipeError, ConnectionResetError):

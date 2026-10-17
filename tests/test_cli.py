@@ -1,17 +1,27 @@
 """SPEC 3 and 4: the command line."""
 
+import io
 import json
 import os
+import random
 import re
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
+import httpx
 import pytest
 
 from magic8.shake import FRAMES, PROMPT
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+class FakeTTY(io.StringIO):
+    def isatty(self):
+        return True
 
 
 def text_of(rows, key):
@@ -184,3 +194,122 @@ def test_subprocess_usage_error_exit_code(tmp_path):
         timeout=30,
     )
     assert proc.returncode == 1
+
+
+# --- exit 130 and the shake conditions -----------------------------------------------------
+
+
+def call_main(argv, tmp_path, stdin, stdout, transport=None, env=None):
+    from magic8.cli import main
+
+    stderr = io.StringIO()
+    code = main(
+        list(argv),
+        env=env or {},
+        stdin=stdin,
+        stdout=stdout,
+        stderr=stderr,
+        cwd=tmp_path,
+        rng=random.Random(0),
+        transport=transport,
+    )
+    return code, stdout.getvalue(), stderr.getvalue()
+
+
+def _interrupt(request):
+    raise KeyboardInterrupt
+
+
+class InterruptingTTY(FakeTTY):
+    def readline(self, *args):
+        raise KeyboardInterrupt
+
+
+def test_ctrl_c_at_question_prompt_exits_130(tmp_path):
+    code, _, _ = call_main([], tmp_path, InterruptingTTY(), FakeTTY())
+    assert code == 130
+
+
+def test_ctrl_c_during_request_exits_130(run_cli):
+    code, out, _ = run_cli("Will it rain?", transport=httpx.MockTransport(_interrupt))
+    assert code == 130
+    assert out == ""
+
+
+def test_ctrl_c_during_shake_exits_130(tmp_path):
+    code, _, _ = call_main(
+        ["Will it rain?"],
+        tmp_path,
+        FakeTTY("\n"),
+        FakeTTY(),
+        transport=httpx.MockTransport(_interrupt),
+    )
+    assert code == 130
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX SIGINT delivery")
+def test_real_sigint_exits_130(fake_server, tmp_path):
+    fake_server.delay = 10
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "magic8", "--backend", fake_server.url, "Will it rain?"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=tmp_path,
+        env=_subprocess_env(),
+    )
+    try:
+        deadline = time.monotonic() + 20
+        while len(fake_server.requests) < 1:
+            if time.monotonic() > deadline:
+                pytest.fail("the request never reached the server")
+            time.sleep(0.01)
+        proc.send_signal(signal.SIGINT)
+        proc.communicate(timeout=20)
+        assert proc.returncode == 130
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()
+
+
+def _tty_run(tmp_path, fake_server, *flags, stdin, stdout):
+    argv = ["Will it rain?", "--backend", fake_server.url, *flags]
+    return call_main(argv, tmp_path, stdin, stdout)
+
+
+def test_shake_runs_when_both_streams_are_ttys(tmp_path, fake_server):
+    code, out, _ = _tty_run(tmp_path, fake_server, stdin=FakeTTY("\n"), stdout=FakeTTY())
+    assert code == 0
+    assert PROMPT in out
+
+
+def test_json_skips_shake_on_ttys(tmp_path, fake_server):
+    code, out, _ = _tty_run(tmp_path, fake_server, "--json", stdin=FakeTTY("\n"), stdout=FakeTTY())
+    assert code == 0
+    assert PROMPT not in out
+    assert "\r" not in out
+    assert len(out.splitlines()) == 1
+    assert "key" in json.loads(out)
+
+
+def test_no_shake_skips_shake_on_ttys(tmp_path, fake_server):
+    code, out, _ = _tty_run(
+        tmp_path, fake_server, "--no-shake", stdin=FakeTTY("\n"), stdout=FakeTTY()
+    )
+    assert code == 0
+    assert PROMPT not in out
+    assert "\r" not in out
+
+
+def test_no_shake_when_stdout_is_not_a_tty(tmp_path, fake_server):
+    code, out, _ = _tty_run(tmp_path, fake_server, stdin=FakeTTY("\n"), stdout=io.StringIO())
+    assert code == 0
+    assert PROMPT not in out
+
+
+def test_no_shake_when_stdin_is_not_a_tty(tmp_path, fake_server):
+    code, out, _ = _tty_run(tmp_path, fake_server, stdin=io.StringIO("\n"), stdout=FakeTTY())
+    assert code == 0
+    assert PROMPT not in out

@@ -140,6 +140,27 @@ def test_bad_responses_raise(data):
     assert str(exc.value) == BAD_RESPONSE_MESSAGE
 
 
+def test_huge_int_probability_is_valid_and_normalised():
+    result = parse_response(wrap({"yes": 10**400, "my_reply_is_no": 1}))
+    assert result.probabilities["yes"] == 1.0
+    assert result.probabilities["my_reply_is_no"] == 0.0
+    assert sum(result.probabilities.values()) == pytest.approx(1.0)
+
+
+def test_huge_float_probabilities_do_not_overflow():
+    result = parse_response(wrap({"yes": 1e308, "my_reply_is_no": 1e308}))
+    assert result.probabilities["yes"] == pytest.approx(0.5)
+    assert result.probabilities["my_reply_is_no"] == pytest.approx(0.5)
+
+
+def test_huge_int_probability_through_cli(run_cli, fake_server, answer_rows):
+    fake_server.body = b'{"answers": {"answer": {"probabilities": {"yes": ' + b"9" * 400 + b"}}}}"
+    code, out, err = run_cli("Will it rain?", "--backend", fake_server.url)
+    text = next(t for k, t, _ in answer_rows if k == "yes")
+    assert code == 0
+    assert f"▲  {text}  ▲" in out
+
+
 def test_model_choice_kept_when_known():
     result = parse_response(wrap({"yes": 1.0}, choice="very_doubtful"))
     assert result.model_choice == "very_doubtful"
@@ -167,6 +188,46 @@ def test_confidence_and_model_none_when_missing():
 
 def test_confidence_bool_is_not_a_number():
     assert parse_response(wrap({"yes": 1.0}, confidence=True)).confidence is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(10**400, id="huge-int"),
+        pytest.param(math.nan, id="nan"),
+        pytest.param(math.inf, id="inf"),
+        pytest.param(-math.inf, id="-inf"),
+    ],
+)
+def test_unusable_confidence_is_none(value):
+    assert parse_response(wrap({"yes": 1.0}, confidence=value)).confidence is None
+
+
+def _no_constants(name):
+    raise ValueError(f"non-standard JSON constant {name}")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(
+            b'{"answers": {"answer": {"probabilities": {"yes": 1}, "confidence": '
+            + b"9" * 400
+            + b"}}}",
+            id="huge-int",
+        ),
+        pytest.param(
+            b'{"answers": {"answer": {"probabilities": {"yes": 1}, "confidence": NaN}}}',
+            id="nan",
+        ),
+    ],
+)
+def test_unusable_confidence_through_cli_is_strict_json_null(run_cli, fake_server, body):
+    fake_server.body = body
+    code, out, _ = run_cli("Will it rain?", "--backend", fake_server.url, "--json")
+    assert code == 0
+    obj = json.loads(out, parse_constant=_no_constants)
+    assert obj["confidence"] is None
 
 
 # --- error cases through the CLI -----------------------------------------------------------
@@ -205,6 +266,18 @@ def make_scenario(kind, fake_server, closed_port_url):
         transport = httpx.MockTransport(_read_timeout)
         return argv, env, transport, "timeout", "The decision model did not answer in 5 s."
     argv += ["--backend", fake_server.url]
+    if kind.startswith("bad-encoding-"):
+        # The status decides the case; a 2xx body that can't be decoded is a bad response.
+        fake_server.status = int(kind[-3:])
+        fake_server.headers = {"Content-Encoding": "gzip"}
+        fake_server.body = b"not gzip"
+        if fake_server.status == 401:
+            message = "The decision model rejected the API key. Check MAGIC8_API_KEY."
+            return argv, env, transport, "auth", message
+        if fake_server.status == 500:
+            message = "The decision model returned an error (HTTP 500)."
+            return argv, env, transport, "http_error", message
+        return argv, env, transport, "bad_response", BAD_RESPONSE_MESSAGE
     if kind in ("auth-401", "auth-403"):
         fake_server.status = int(kind[-3:])
         message = "The decision model rejected the API key. Check MAGIC8_API_KEY."
@@ -218,6 +291,8 @@ def make_scenario(kind, fake_server, closed_port_url):
         fake_server.body = b"this is not json"
     elif kind == "bad-shape":
         fake_server.body = {"answers": {}}
+    elif kind == "deep-json":
+        fake_server.body = b"[" * 100_000 + b"]" * 100_000
     else:  # pragma: no cover
         raise AssertionError(kind)
     return argv, env, transport, "bad_response", BAD_RESPONSE_MESSAGE
@@ -233,6 +308,10 @@ KINDS = [
     "http-500",
     "bad-json",
     "bad-shape",
+    "deep-json",
+    "bad-encoding-200",
+    "bad-encoding-500",
+    "bad-encoding-401",
 ]
 
 

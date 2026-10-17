@@ -6,6 +6,7 @@ from pathlib import Path
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_TIMEOUT_MS = 5000
+MAX_TIMEOUT_MS = 2**31 - 1  # SPEC 6: larger values are used as this; it fits every platform
 
 
 class ConfigError(Exception):
@@ -75,6 +76,11 @@ def load_config(
             raise ConfigError(
                 f"MAGIC8_TIMEOUT_MS must be a positive whole number of milliseconds, got {raw!r}."
             )
+        timeout_ms = min(timeout_ms, MAX_TIMEOUT_MS)
+
+    # The key goes in an HTTP header. Never echo it.
+    if api_key is not None and not (api_key.isascii() and api_key.isprintable()):
+        raise ConfigError("MAGIC8_API_KEY must hold only printable ASCII characters.")
 
     return Config(
         base_url=url.rstrip("/"),
