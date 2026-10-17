@@ -1,6 +1,6 @@
 # 0002. Build the CLI in Python, install with pipx
 
-- Status: Accepted
+- Status: Accepted. Install part superseded by [0006](0006-install-with-uv.md)
 - Date: 2026-10-17
 
 ## Context

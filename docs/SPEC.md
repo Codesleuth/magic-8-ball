@@ -63,7 +63,9 @@ Decided in [ADR 0002](adr/0002-python.md).
 - Python 3.11 or later. The CLI is a normal Python package with a `magic8`
   console script.
 - HTTP client: `httpx`.
-- Users install it with `pipx install` (PyPI release later).
+- Users install it with `uv tool install`
+  ([ADR 0006](adr/0006-install-with-uv.md)). `pipx install` also works.
+  PyPI release later.
 - Keep runtime dependencies small. No ML libraries in the CLI process: the
   model runs in a separate server ([ADR 0001](adr/0001-use-systemone-api.md)).
 
@@ -188,7 +190,7 @@ one of the 20 keys.
 | Q5 | Language and runtime? | **Decided:** Python ([ADR 0002](adr/0002-python.md)) |
 | Q6 | Default backend? | **Decided:** local Laya server ([ADR 0005](adr/0005-default-backend-local-laya.md)) |
 | Q7 | License? | **Decided:** no license for now. Revisit before a public release. |
-| Q8 | How to distribute? | **Decided:** `pipx` install; PyPI later ([ADR 0002](adr/0002-python.md)) |
+| Q8 | How to distribute? | **Decided:** `uv tool install`; `pipx install` also works; PyPI later ([ADR 0006](adr/0006-install-with-uv.md)) |
 | Q9 | Lowest Python version and HTTP library? | **Decided:** Python 3.11+, `httpx` (section 5) |
 
 To change a decision, update this file and add an ADR in [adr/](adr/).
