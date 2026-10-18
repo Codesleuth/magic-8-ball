@@ -81,9 +81,10 @@ Read from environment variables (and from `.env` in the working directory).
 The real environment wins over `.env`, and `--backend` / `--model` win over
 both. An empty value means "not set". `MAGIC8_TIMEOUT_MS` must be a whole
 number above 0; anything else is a usage error (exit `1`). A value above
-2147483647 (about 24.8 days) is used as 2147483647. `MAGIC8_API_KEY` is sent
-in an HTTP header, so it may hold only printable ASCII characters; anything
-else is a usage error (exit `1`), and the message does not show the key.
+2147483647 (about 24.8 days) is used as 2147483647, however many digits it
+has. `MAGIC8_API_KEY` is sent in an HTTP header, so it may hold only printable
+ASCII characters, with no space at the start or end; anything else is a usage
+error (exit `1`), and the message does not show the key.
 
 The default backend is a local Laya server
 ([ADR 0005](adr/0005-default-backend-local-laya.md)). To use Jev instead, set
@@ -156,8 +157,10 @@ With `--json`, print `{"error": "<code>", "message": "<text>"}` to stdout
 as well, and still exit `2`.
 
 A response is read like this. `answers.answer.probabilities` must be an
-object. A value for one of the 20 keys must be a number (of any size) that
-is 0 or more; anything else makes the response bad. `choice`, `confidence`
+object. A value for one of the 20 keys must be a number that is 0, or from
+10^-1000000 up to but not including 10^1000000; anything else makes the
+response bad. Within that range the size and the number of digits do not
+matter: `1e400` and an integer with 5000 digits are valid. `choice`, `confidence`
 and `model` are optional: they are shown when present, `choice` only if it is
 one of the 20 keys, and `confidence` only if it is a finite number that fits
 in a 64-bit float.
