@@ -1,9 +1,10 @@
 """HTTP client for a /v1/systemone decision-model server."""
 
+import decimal
 import math
 import time
 from dataclasses import dataclass
-from fractions import Fraction
+from decimal import Decimal
 
 import httpx
 
@@ -14,6 +15,14 @@ INSTRUCTIONS = "You are a Magic 8 Ball. Pick the answer that best fits the user'
 QUESTION_ID = "answer"
 
 BAD_RESPONSE_MESSAGE = "The decision model sent a response the ball can't read."
+
+# SPEC 7.3: a probability is 0, or from 10^-1000000 up to but not including 10^1000000.
+# The bounds are on Decimal.adjusted(), the power of 10 of the first digit.
+MIN_EXPONENT = -1_000_000
+MAX_EXPONENT = 999_999
+# Wide enough that sums and quotients of such values neither overflow nor underflow,
+# and more digits than a float holds.
+_NORMALISE = decimal.Context(prec=40, Emin=-10_000_000, Emax=10_000_000)
 
 
 class BackendError(Exception):
@@ -51,8 +60,30 @@ def build_request(question: str, model: str | None) -> dict:
     return body
 
 
+def _json_number(text: str) -> Decimal | None:
+    """A JSON number, exact. int() and float() would cap its digits or its size."""
+    try:
+        return Decimal(text)
+    except decimal.InvalidOperation:
+        # The exponent is too far out for Decimal (about 10^18). A zero is still zero.
+        mantissa = text.lower().partition("e")[0]
+        return Decimal(0) if not mantissa.strip("-0.") else None
+
+
 def _is_number(value: object) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool)
+    return isinstance(value, int | float | Decimal) and not isinstance(value, bool)
+
+
+def _probability(value: object) -> Decimal | None:
+    """The value, exact, if it is a valid probability (SPEC 7.3); otherwise None."""
+    if not _is_number(value):
+        return None
+    number = Decimal(value)  # type: ignore[arg-type]
+    if not number.is_finite() or number < 0:
+        return None
+    if number and not MIN_EXPONENT <= number.adjusted() <= MAX_EXPONENT:
+        return None
+    return number
 
 
 def _finite_float(value: object) -> float | None:
@@ -83,24 +114,25 @@ def parse_response(data: object, latency_ms: int = 0) -> ModelResult:
     if not isinstance(raw, dict):
         raise _bad_response()
 
-    # Exact arithmetic: a value may be an int too big for a float, and finite floats
-    # can sum past the float range. Both are valid (SPEC 7.3).
-    known: dict[str, Fraction] = {}
+    # Decimal arithmetic: a value may be too big for a float, and finite floats can sum
+    # past the float range. Both are valid (SPEC 7.3).
+    known: dict[str, Decimal] = {}
     for key, value in raw.items():
         if key not in BY_KEY:
             continue
-        if not _is_number(value) or (isinstance(value, float) and not math.isfinite(value)):
+        number = _probability(value)
+        if number is None:
             raise _bad_response()
-        if value < 0:
-            raise _bad_response()
-        known[key] = Fraction(value)
+        known[key] = number
     if not known:
         raise _bad_response()
-    total = sum(known.values())
-    if total == 0:
-        raise _bad_response()
-
-    probabilities = {a.key: float(known.get(a.key, 0) / total) for a in ANSWERS}
+    with decimal.localcontext(_NORMALISE):
+        # Rounding to the context first keeps long values cheap to add and divide.
+        known = {key: +number for key, number in known.items()}
+        total = sum(known.values())
+        if total == 0:
+            raise _bad_response()
+        probabilities = {a.key: float(known.get(a.key, Decimal(0)) / total) for a in ANSWERS}
 
     choice = answer.get("choice")
     model_choice = choice if isinstance(choice, str) and choice in BY_KEY else None
@@ -158,7 +190,7 @@ def ask(
     if not decoded:
         raise _bad_response()
     try:
-        data = response.json()
+        data = response.json(parse_int=_json_number, parse_float=_json_number)
     except (ValueError, RecursionError) as exc:
         raise _bad_response() from exc
     return parse_response(data, latency_ms)
