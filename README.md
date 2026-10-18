@@ -100,12 +100,3 @@ Set `NO_COLOR` to turn off colour.
 
 Read [AGENTS.md](AGENTS.md) first. Use the issue templates for features and
 bugs. Record significant design choices as an ADR in [docs/adr/](docs/adr/).
-
-## Automation identities
-
-These Dominiux Labs bots may open, review and merge pull requests on this repo:
-
-- `dominiux-jared[bot]` merges pull requests.
-- `dominiux-gilfoyle[bot]` opens the engineering pull requests.
-- `dominiux-gabe[bot]` reviews pull requests for QA.
-- `dominiux-danesh[bot]` runs the Accounter parity and prototype checks.
