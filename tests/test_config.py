@@ -134,7 +134,19 @@ def test_valid_timeout():
     assert load_config({"MAGIC8_TIMEOUT_MS": "1"}, None).timeout_ms == 1
 
 
-@pytest.mark.parametrize("raw", ["abc", "0", "-5", "1.5"])
+@pytest.mark.parametrize(
+    "raw",
+    ["abc", "0", "-5", "1.5", "-" + "9" * 5000, "0" * 5000, "9" * 5000 + "x"],
+    ids=[
+        "letters",
+        "zero",
+        "negative",
+        "fraction",
+        "negative-5001-digits",
+        "zero-5000-digits",
+        "5000-digits-then-letter",
+    ],
+)
 def test_bad_timeout_raises(raw):
     with pytest.raises(ConfigError) as exc:
         load_config({"MAGIC8_TIMEOUT_MS": raw}, None)
@@ -157,10 +169,16 @@ def test_bad_timeout_via_cli_exits_1(run_cli, closed_port_url, raw):
 
 
 @pytest.mark.parametrize(
-    "raw", ["99999999999999999999", "2147483647", "2147483648"], ids=["huge", "max", "max-plus-1"]
+    "raw",
+    ["99999999999999999999", "2147483647", "2147483648", "9" * 4301, "1" + "0" * 5000],
+    ids=["huge", "max", "max-plus-1", "4301-digits", "5001-digits"],
 )
 def test_timeout_above_max_is_clamped(raw):
     assert load_config({"MAGIC8_TIMEOUT_MS": raw}, None).timeout_ms == 2147483647
+
+
+def test_timeout_with_many_leading_zeros():
+    assert load_config({"MAGIC8_TIMEOUT_MS": "0" * 5000 + "7"}, None).timeout_ms == 7
 
 
 def test_huge_timeout_via_cli_is_clamped_not_rejected(run_cli, closed_port_url):
@@ -175,13 +193,27 @@ def test_huge_timeout_via_cli_is_clamped_not_rejected(run_cli, closed_port_url):
     assert f"Can't reach the decision model at {url}." in err
 
 
-API_KEY_MESSAGE = "MAGIC8_API_KEY must hold only printable ASCII characters."
+def test_timeout_beyond_int_digit_limit_via_cli_is_clamped_not_rejected(run_cli, closed_port_url):
+    url = closed_port_url()
+    code, _, err = run_cli(
+        "Will it rain?",
+        "--backend",
+        url,
+        env={"MAGIC8_TIMEOUT_MS": "9" * 4301},
+    )
+    assert code == 2
+    assert f"Can't reach the decision model at {url}." in err
+
+
+API_KEY_MESSAGE = (
+    "MAGIC8_API_KEY must hold only printable ASCII characters, with no space at the start or end."
+)
 
 
 @pytest.mark.parametrize(
     "key",
-    ["clé", "tok\nen", "tok\ten", "\x7f"],
-    ids=["non-ascii", "newline", "tab", "del"],
+    ["clé", "tok\nen", "tok\ten", "\x7f", "abc ", " abc", "   "],
+    ids=["non-ascii", "newline", "tab", "del", "trailing-space", "leading-space", "only-spaces"],
 )
 def test_api_key_must_be_printable_ascii(key):
     with pytest.raises(ConfigError) as exc:
@@ -212,4 +244,18 @@ def test_bad_api_key_via_cli_exits_1_without_request(run_cli, fake_server):
     assert out == ""
     assert "MAGIC8_API_KEY" in err
     assert "clé-secret" not in err
+    assert fake_server.requests == []
+
+
+def test_api_key_with_trailing_space_via_cli_exits_1_without_request(run_cli, fake_server):
+    code, out, err = run_cli(
+        "Will it rain?",
+        "--backend",
+        fake_server.url,
+        env={"MAGIC8_API_KEY": "abc "},
+    )
+    assert code == 1
+    assert out == ""
+    assert "MAGIC8_API_KEY" in err
+    assert "Can't reach" not in err
     assert fake_server.requests == []

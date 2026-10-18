@@ -161,6 +161,59 @@ def test_huge_int_probability_through_cli(run_cli, fake_server, answer_rows):
     assert f"▲  {text}  ▲" in out
 
 
+def _probabilities_body(probs):
+    return b'{"answers": {"answer": {"probabilities": {' + probs + b"}}}}"
+
+
+@pytest.mark.parametrize(
+    "probs",
+    [
+        b'"yes": ' + b"9" * 4301,
+        b'"yes": ' + b"9" * 5000 + b', "my_reply_is_no": 1',
+        b'"yes": 1e400, "my_reply_is_no": 1',
+        b'"yes": 9.9e999999, "my_reply_is_no": 1',
+        b'"yes": 1e-1000000',
+        b'"yes": 1, "my_reply_is_no": 0e99999999999999999999',
+        b'"yes": 1, "my_reply_is_no": 0.0',
+    ],
+    ids=[
+        "int-4301-digits",
+        "int-5000-digits",
+        "1e400",
+        "just-below-max",
+        "min",
+        "zero-huge-exponent",
+        "zero-float",
+    ],
+)
+def test_probability_of_any_size_in_range_is_valid(run_cli, fake_server, probs):
+    fake_server.body = _probabilities_body(probs)
+    code, out, err = run_cli("Will it rain?", "--backend", fake_server.url, "--json")
+    assert code == 0
+    result = json.loads(out)
+    assert result["key"] == "yes"
+    assert result["probabilities"]["yes"] == 1.0
+    assert result["probabilities"]["my_reply_is_no"] == 0.0
+
+
+@pytest.mark.parametrize(
+    "probs",
+    [
+        b'"yes": 1e1000000',
+        b'"yes": 1, "my_reply_is_no": 1e-1000001',
+        b'"yes": 1, "my_reply_is_no": 1e99999999999999999999',
+        b'"yes": 1, "my_reply_is_no": 1e-99999999999999999999',
+        b'"yes": -1e400',
+    ],
+    ids=["max", "below-min", "huge-exponent", "tiny-exponent", "negative-huge"],
+)
+def test_probability_out_of_range_is_bad_response(run_cli, fake_server, probs):
+    fake_server.body = _probabilities_body(probs)
+    code, out, err = run_cli("Will it rain?", "--backend", fake_server.url, "--json")
+    assert code == 2
+    assert json.loads(out) == {"error": "bad_response", "message": BAD_RESPONSE_MESSAGE}
+
+
 def test_model_choice_kept_when_known():
     result = parse_response(wrap({"yes": 1.0}, choice="very_doubtful"))
     assert result.model_choice == "very_doubtful"
@@ -265,6 +318,12 @@ def make_scenario(kind, fake_server, closed_port_url):
     if kind == "timeout-mock":
         transport = httpx.MockTransport(_read_timeout)
         return argv, env, transport, "timeout", "The decision model did not answer in 5 s."
+    if kind == "timeout-body":
+        fake_server.body_stall_after = 10
+        fake_server.body_stall = 1.0
+        argv += ["--backend", fake_server.url]
+        env["MAGIC8_TIMEOUT_MS"] = "200"
+        return argv, env, transport, "timeout", "The decision model did not answer in 0.2 s."
     argv += ["--backend", fake_server.url]
     if kind.startswith("bad-encoding-"):
         # The status decides the case; a 2xx body that can't be decoded is a bad response.
@@ -303,6 +362,7 @@ KINDS = [
     "unreachable-default",
     "timeout-server",
     "timeout-mock",
+    "timeout-body",
     "auth-401",
     "auth-403",
     "http-500",

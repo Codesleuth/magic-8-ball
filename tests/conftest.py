@@ -70,6 +70,8 @@ class FakeServer:
     status: int = 200
     body: Any = field(default_factory=lambda: build_good_response({"yes": 1.0}))
     delay: float = 0.0
+    body_stall_after: int | None = None
+    body_stall: float = 0.0
     headers: dict[str, str] = field(default_factory=dict)
     requests: list[RecordedRequest] = field(default_factory=list)
 
@@ -103,7 +105,13 @@ class FakeServer:
                     for name, value in outer.headers.items():
                         self.send_header(name, value)
                     self.end_headers()
-                    self.wfile.write(payload)
+                    if outer.body_stall_after is None:
+                        self.wfile.write(payload)
+                    else:
+                        self.wfile.write(payload[: outer.body_stall_after])
+                        self.wfile.flush()
+                        threading.Event().wait(outer.body_stall)
+                        self.wfile.write(payload[outer.body_stall_after :])
                 except (BrokenPipeError, ConnectionResetError):
                     pass
 
