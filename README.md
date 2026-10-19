@@ -36,13 +36,24 @@ The ball only ever shows one of the
 
 ## Install
 
-You need Python 3.11 or later and [pipx](https://pipx.pypa.io/).
+Install with [uv](https://docs.astral.sh/uv/). uv downloads Python 3.11 or
+later if it is missing.
 
 ```sh
-pipx install git+https://github.com/Codesleuth/magic-8-ball
+uv tool install git+https://github.com/Codesleuth/magic-8-ball
 ```
 
-Or from a clone: `pipx install .`
+Or from a clone: `uv tool install .`
+
+To try the ball without installing it (start the decision model first, see
+below):
+
+```sh
+uvx --from git+https://github.com/Codesleuth/magic-8-ball magic8 "Will it rain?"
+```
+
+pipx also works (needs Python 3.11 or later):
+`pipx install git+https://github.com/Codesleuth/magic-8-ball`
 
 ### Start the decision model
 
