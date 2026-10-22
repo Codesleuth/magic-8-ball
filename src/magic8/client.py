@@ -146,6 +146,17 @@ def parse_response(data: object, latency_ms: int = 0) -> ModelResult:
     )
 
 
+def _unreachable(base_url: str) -> BackendError:
+    if base_url == DEFAULT_BASE_URL:
+        message = (
+            f"Can't reach the decision model at {DEFAULT_BASE_URL}. "
+            "Start a local Laya server with: laya-serve"
+        )
+    else:
+        message = f"Can't reach the decision model at {base_url}."
+    return BackendError("unreachable", message)
+
+
 def ask(
     question: str, config: Config, *, transport: httpx.BaseTransport | None = None
 ) -> ModelResult:
@@ -155,28 +166,33 @@ def ask(
     body = build_request(question, config.model)
     url = f"{config.base_url}/v1/systemone"
     try:
+        # A URL can pass the SPEC 6 rules and still have a host or path that can't be encoded.
+        httpx.Request("POST", url)
+    except (httpx.InvalidURL, UnicodeError) as exc:
+        raise _unreachable(config.base_url) from exc
+    try:
         with httpx.Client(transport=transport, timeout=config.timeout_ms / 1000) as client:
             started = time.monotonic()
-            # Stream so the status is known even when the body can't be decoded (SPEC 7.3).
-            with client.stream("POST", url, json=body, headers=headers) as response:
-                try:
-                    response.read()
-                    decoded = True
-                except httpx.DecodingError:
-                    decoded = False
+            request = client.build_request("POST", url, json=body, headers=headers)
+            try:
+                # Stream so the status is known even when the body can't be decoded (SPEC 7.3).
+                response = client.send(request, stream=True)
+            except UnicodeError as exc:
+                # The resolver can't encode the host, e.g. an empty or over-long label.
+                raise _unreachable(config.base_url) from exc
+            try:
+                response.read()
+                decoded = True
+            except httpx.DecodingError:
+                decoded = False
+            finally:
+                response.close()
             latency_ms = round((time.monotonic() - started) * 1000)
     except httpx.TimeoutException as exc:
         secs = f"{config.timeout_ms / 1000:g}"
         raise BackendError("timeout", f"The decision model did not answer in {secs} s.") from exc
     except (httpx.TransportError, httpx.InvalidURL) as exc:
-        if config.base_url == DEFAULT_BASE_URL:
-            message = (
-                f"Can't reach the decision model at {DEFAULT_BASE_URL}. "
-                "Start a local Laya server with: laya-serve"
-            )
-        else:
-            message = f"Can't reach the decision model at {config.base_url}."
-        raise BackendError("unreachable", message) from exc
+        raise _unreachable(config.base_url) from exc
 
     status = response.status_code
     if status in (401, 403):
