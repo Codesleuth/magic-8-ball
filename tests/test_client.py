@@ -175,6 +175,8 @@ def _probabilities_body(probs):
         b'"yes": 1e-1000000',
         b'"yes": 1, "my_reply_is_no": 0e99999999999999999999',
         b'"yes": 1, "my_reply_is_no": 0.0',
+        b'"yes": 1, "my_reply_is_no": 0.0e99999999999999999999',
+        b'"yes": 1, "my_reply_is_no": -0.0E-99999999999999999999',
     ],
     ids=[
         "int-4301-digits",
@@ -184,6 +186,8 @@ def _probabilities_body(probs):
         "min",
         "zero-huge-exponent",
         "zero-float",
+        "zero-point-huge-exponent",
+        "negative-zero-point-tiny-exponent",
     ],
 )
 def test_probability_of_any_size_in_range_is_valid(run_cli, fake_server, probs):
@@ -194,6 +198,31 @@ def test_probability_of_any_size_in_range_is_valid(run_cli, fake_server, probs):
     assert result["key"] == "yes"
     assert result["probabilities"]["yes"] == 1.0
     assert result["probabilities"]["my_reply_is_no"] == 0.0
+
+
+@pytest.mark.parametrize("count", [4, 20], ids=["4-keys", "20-keys"])
+def test_probabilities_near_max_are_summed_without_overflow(
+    run_cli, fake_server, answer_rows, count
+):
+    keys = [key for key, _, _ in answer_rows][:count]
+    entries = [b'"%s": 9.99e999999' % key.encode() for key in keys]
+    fake_server.body = _probabilities_body(b", ".join(entries))
+    code, out, err = run_cli("Will it rain?", "--backend", fake_server.url, "--json")
+    assert code == 0
+    result = json.loads(out)
+    assert result["key"] in keys
+    for key, _, _ in answer_rows:
+        expected = 1 / count if key in keys else 0.0
+        assert result["probabilities"][key] == expected
+
+
+def test_normalisation_is_exact_to_float_precision(run_cli, fake_server):
+    fake_server.body = _probabilities_body(b'"yes": 1, "my_reply_is_no": 2')
+    code, out, err = run_cli("Will it rain?", "--backend", fake_server.url, "--json")
+    assert code == 0
+    result = json.loads(out)
+    assert result["probabilities"]["yes"] == 1 / 3
+    assert result["probabilities"]["my_reply_is_no"] == 2 / 3
 
 
 @pytest.mark.parametrize(

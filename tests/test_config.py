@@ -136,7 +136,18 @@ def test_valid_timeout():
 
 @pytest.mark.parametrize(
     "raw",
-    ["abc", "0", "-5", "1.5", "-" + "9" * 5000, "0" * 5000, "9" * 5000 + "x"],
+    [
+        "abc",
+        "0",
+        "-5",
+        "1.5",
+        "-" + "9" * 5000,
+        "0" * 5000,
+        "9" * 5000 + "x",
+        "9_" * 4300 + "_9",
+        "9_" * 4301,
+        "_" + "9" * 4301,
+    ],
     ids=[
         "letters",
         "zero",
@@ -145,6 +156,9 @@ def test_valid_timeout():
         "negative-5001-digits",
         "zero-5000-digits",
         "5000-digits-then-letter",
+        "double-underscore-4301-digits",
+        "trailing-underscore-4301-digits",
+        "leading-underscore-4301-digits",
     ],
 )
 def test_bad_timeout_raises(raw):
@@ -170,8 +184,15 @@ def test_bad_timeout_via_cli_exits_1(run_cli, closed_port_url, raw):
 
 @pytest.mark.parametrize(
     "raw",
-    ["99999999999999999999", "2147483647", "2147483648", "9" * 4301, "1" + "0" * 5000],
-    ids=["huge", "max", "max-plus-1", "4301-digits", "5001-digits"],
+    [
+        "99999999999999999999",
+        "2147483647",
+        "2147483648",
+        "9" * 4301,
+        "1" + "0" * 5000,
+        "9_" * 4300 + "9",
+    ],
+    ids=["huge", "max", "max-plus-1", "4301-digits", "5001-digits", "underscores-4301-digits"],
 )
 def test_timeout_above_max_is_clamped(raw):
     assert load_config({"MAGIC8_TIMEOUT_MS": raw}, None).timeout_ms == 2147483647
@@ -179,6 +200,10 @@ def test_timeout_above_max_is_clamped(raw):
 
 def test_timeout_with_many_leading_zeros():
     assert load_config({"MAGIC8_TIMEOUT_MS": "0" * 5000 + "7"}, None).timeout_ms == 7
+
+
+def test_underscored_timeout_with_many_leading_zeros():
+    assert load_config({"MAGIC8_TIMEOUT_MS": "0_" * 5000 + "5"}, None).timeout_ms == 5
 
 
 def test_huge_timeout_via_cli_is_clamped_not_rejected(run_cli, closed_port_url):
@@ -193,13 +218,20 @@ def test_huge_timeout_via_cli_is_clamped_not_rejected(run_cli, closed_port_url):
     assert f"Can't reach the decision model at {url}." in err
 
 
-def test_timeout_beyond_int_digit_limit_via_cli_is_clamped_not_rejected(run_cli, closed_port_url):
+@pytest.mark.parametrize(
+    "raw",
+    ["9" * 4301, "9_" * 4300 + "9"],
+    ids=["4301-digits", "underscores-4301-digits"],
+)
+def test_timeout_beyond_int_digit_limit_via_cli_is_clamped_not_rejected(
+    run_cli, closed_port_url, raw
+):
     url = closed_port_url()
     code, _, err = run_cli(
         "Will it rain?",
         "--backend",
         url,
-        env={"MAGIC8_TIMEOUT_MS": "9" * 4301},
+        env={"MAGIC8_TIMEOUT_MS": raw},
     )
     assert code == 2
     assert f"Can't reach the decision model at {url}." in err
