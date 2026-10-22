@@ -428,6 +428,35 @@ def test_backend_errors_json(kind, run_cli, fake_server, closed_port_url, answer
         assert text not in err
 
 
+# Base URLs that pass the SPEC 6 rules but whose host or path can't be encoded.
+UNENCODABLE_URLS = [
+    pytest.param("http://xn--zz", id="bad-a-label"),
+    pytest.param("http://xn--", id="empty-a-label"),
+    pytest.param("http://a..b", id="empty-label"),
+    pytest.param("http://.", id="dot"),
+    pytest.param("http://..", id="two-dots"),
+    pytest.param("http://a" + "b" * 70 + ".test", id="label-over-63"),
+    pytest.param("http://a/\udcff", id="surrogate-in-path"),
+]
+
+
+@pytest.mark.parametrize("url", UNENCODABLE_URLS)
+def test_unencodable_backend_url_is_unreachable(run_cli, url):
+    code, out, err = run_cli("Will it rain?", "--backend", url, "--json")
+    message = f"Can't reach the decision model at {url}."
+    assert code == 2
+    assert json.loads(out) == {"error": "unreachable", "message": message}
+    assert message in err
+
+
+@pytest.mark.parametrize("url", UNENCODABLE_URLS)
+def test_unencodable_env_base_url_is_unreachable(run_cli, url):
+    code, out, err = run_cli("Will it rain?", env={"MAGIC8_BASE_URL": url})
+    assert code == 2
+    assert out == ""
+    assert f"Can't reach the decision model at {url}." in err
+
+
 def test_server_detail_hidden_without_verbose(run_cli, fake_server):
     fake_server.status = 500
     fake_server.body = b"model exploded"
