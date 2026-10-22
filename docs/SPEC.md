@@ -115,8 +115,11 @@ usage error (exit `1`) rather than a backend error, if any of these is true:
    port.
 
 The rules are checked in this order, and the message names the first one that
-fails. A base URL may have a path (`https://example.test/magic`). A well-formed
-URL whose host cannot be found or reached is a backend error (7.3).
+fails. A base URL may have a path (`https://example.test/magic`). A URL that
+passes these rules is a backend error (`unreachable`, 7.3) if the ball cannot
+use it: its host cannot be found or reached, or its host or path cannot be
+encoded (for example `http://xn--zz`, an empty label as in `http://a..b`, a
+label over 63 characters, or a byte in the path that is not UTF-8).
 
 The default backend is a local Laya server
 ([ADR 0005](adr/0005-default-backend-local-laya.md)). To use Jev instead, set
@@ -181,6 +184,7 @@ The error says what went wrong and what to do next:
 | --- | --- | --- |
 | Connection refused at the default URL | `unreachable` | `Can't reach the decision model at http://127.0.0.1:8000. Start a local Laya server with: laya-serve` |
 | Connection refused at another URL | `unreachable` | `Can't reach the decision model at <url>.` |
+| Host or path of the URL can't be encoded (section 6) | `unreachable` | `Can't reach the decision model at <url>.` |
 | Timeout | `timeout` | `The decision model did not answer in 5 s.` |
 | HTTP 401 / 403 | `auth` | `The decision model rejected the API key. Check MAGIC8_API_KEY.` |
 | Other HTTP error | `http_error` | `The decision model returned an error (HTTP <code>).` plus the server message with `--verbose` |
