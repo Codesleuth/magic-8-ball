@@ -1,11 +1,16 @@
 """Configuration from flags, the environment and a .env file."""
 
+import re
+import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_TIMEOUT_MS = 5000
+MAX_TIMEOUT_MS = 2**31 - 1  # SPEC 6: larger values are used as this; it fits every platform
+
+_DIGIT_GROUPS = re.compile(r"\d(?:_?\d)*")  # digits, with the single "_" int() allows between them
 
 
 class ConfigError(Exception):
@@ -44,6 +49,23 @@ def read_dotenv(path: Path) -> dict[str, str]:
     return values
 
 
+def _parse_timeout_ms(raw: str) -> int | None:
+    """The value as int() reads it, capped at MAX_TIMEOUT_MS; None if it is not above 0.
+
+    int() refuses more than 4300 digits, but such a value is still a whole number (SPEC 6).
+    So int() checks the form on a copy with each group of digits (and the "_" between them)
+    cut to one digit, and the digits are read here.
+    """
+    try:
+        sign = int(_DIGIT_GROUPS.sub("1", raw))
+    except ValueError:
+        return None
+    digits = "".join(str(unicodedata.decimal(c)) for c in raw if c.isdecimal()).lstrip("0")
+    if sign < 0 or not digits:
+        return None
+    return min(int(digits[:11]), MAX_TIMEOUT_MS)  # 11 digits are already above the cap
+
+
 def load_config(
     env: Mapping[str, str],
     dotenv_path: Path | None,
@@ -67,14 +89,21 @@ def load_config(
     if raw == "":
         timeout_ms = DEFAULT_TIMEOUT_MS
     else:
-        try:
-            timeout_ms = int(raw)
-        except ValueError:
-            timeout_ms = 0
-        if timeout_ms <= 0:
+        parsed = _parse_timeout_ms(raw)
+        if parsed is None:
             raise ConfigError(
                 f"MAGIC8_TIMEOUT_MS must be a positive whole number of milliseconds, got {raw!r}."
             )
+        timeout_ms = parsed
+
+    # The key goes in an HTTP header, which can't start or end with a space. Never echo it.
+    if api_key is not None and not (
+        api_key.isascii() and api_key.isprintable() and api_key.strip() == api_key
+    ):
+        raise ConfigError(
+            "MAGIC8_API_KEY must hold only printable ASCII characters, "
+            "with no space at the start or end."
+        )
 
     return Config(
         base_url=url.rstrip("/"),

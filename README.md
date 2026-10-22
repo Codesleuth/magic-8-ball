@@ -87,7 +87,8 @@ magic8 --no-shake "Will it rain tomorrow?"
 magic8 --json "Is this a good idea?"
 ```
 
-Exit codes: `0` answer shown, `1` usage error, `2` backend error.
+Exit codes: `0` answer shown, `1` usage error, `2` backend error, `130`
+stopped with Ctrl-C.
 
 ### Configuration
 
