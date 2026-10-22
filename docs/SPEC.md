@@ -52,7 +52,7 @@ Exit codes:
 | Code | Meaning |
 | --- | --- |
 | `0` | Answer shown |
-| `1` | Usage error (bad flag, empty question, invalid `MAGIC8_TIMEOUT_MS` or `MAGIC8_API_KEY`) |
+| `1` | Usage error (bad flag, empty question, malformed `--backend` or `MAGIC8_BASE_URL`, invalid `MAGIC8_TIMEOUT_MS` or `MAGIC8_API_KEY`) |
 | `2` | Backend error (see 7.3) |
 | `130` | Stopped with Ctrl-C (shell convention) |
 
@@ -81,12 +81,45 @@ Read from environment variables (and from `.env` in the working directory).
 | `MAGIC8_TIMEOUT_MS` | Request timeout | `5000` |
 
 The real environment wins over `.env`, and `--backend` / `--model` win over
-both. An empty value means "not set". `MAGIC8_TIMEOUT_MS` must be a whole
-number above 0; anything else is a usage error (exit `1`). A value above
-2147483647 (about 24.8 days) is used as 2147483647, however many digits it
-has. `MAGIC8_API_KEY` is sent in an HTTP header, so it may hold only printable
+both. An empty value means "not set". A variable that is set to an empty value
+in the real environment is "not set", and its value in `.env` is **not** used:
+the default applies. In `.env`, spaces around an unquoted value are not part of
+the value; inside quotes they are.
+
+`MAGIC8_TIMEOUT_MS` must be one or more ASCII digits (`0`-`9`) and nothing
+else, with a value above 0. Leading zeros are allowed (`007` is 7). Anything
+else is a usage error (exit `1`): for example `0`, `5_000`, `+5`, `-5`,
+`1.5`, ` 5000 ` (a space at either end), or digits from other scripts such as
+`٥٠٠٠`. A value above 2147483647 (about 24.8 days) is used as 2147483647,
+however many digits it has.
+
+`MAGIC8_API_KEY` is sent in an HTTP header, so it may hold only printable
 ASCII characters, with no space at the start or end; anything else is a usage
 error (exit `1`), and the message does not show the key.
+
+The base URL (`--backend`, or else `MAGIC8_BASE_URL`) is malformed, and a
+usage error (exit `1`) rather than a backend error, if any of these is true:
+
+1. It holds a space or an ASCII control character (U+0000 to U+001F, U+007F),
+   anywhere.
+2. It does not start with `http://` or `https://`. The scheme may be in any
+   case (`HTTPS://` is fine).
+3. It holds a `?` or a `#`. The ball adds `/v1/systemone` to the end of the
+   base URL, so it cannot have a query or a fragment.
+4. It has no host. The host is the part after `//` and before the next `/`,
+   without any `user@` in front of it and any `:port` after it. An IPv6 host
+   is written in brackets (`http://[::1]:8000`): it must have both, and
+   nothing but a `:port` may follow the `]`.
+5. It has a port (after a `:` that follows the host) that is not ASCII digits
+   with a value from 1 to 65535. A `:` with nothing after it means the default
+   port.
+
+The rules are checked in this order, and the message names the first one that
+fails. A base URL may have a path (`https://example.test/magic`). A URL that
+passes these rules is a backend error (`unreachable`, 7.3) if the ball cannot
+use it: its host cannot be found or reached, or its host or path cannot be
+encoded (for example `http://xn--zz`, an empty label as in `http://a..b`, a
+label over 63 characters, or a byte in the path that is not UTF-8).
 
 The default backend is a local Laya server
 ([ADR 0005](adr/0005-default-backend-local-laya.md)). To use Jev instead, set
@@ -138,7 +171,8 @@ odds when the model is unsure. `confidence` is shown only with `--json` and
 Decided in [ADR 0004](adr/0004-fail-on-backend-error.md).
 
 If the backend cannot be reached, the call fails or times out, or the
-response is not valid, the ball does **not** make up an answer. It:
+response is not valid, the ball does **not** make up an answer. (A malformed
+base URL is a usage error, not a backend error: see section 6.) It:
 
 1. Stops the shake animation.
 2. Prints a short error to stderr. No answer is shown.
@@ -150,6 +184,7 @@ The error says what went wrong and what to do next:
 | --- | --- | --- |
 | Connection refused at the default URL | `unreachable` | `Can't reach the decision model at http://127.0.0.1:8000. Start a local Laya server with: laya-serve` |
 | Connection refused at another URL | `unreachable` | `Can't reach the decision model at <url>.` |
+| Host or path of the URL can't be encoded (section 6) | `unreachable` | `Can't reach the decision model at <url>.` |
 | Timeout | `timeout` | `The decision model did not answer in 5 s.` |
 | HTTP 401 / 403 | `auth` | `The decision model rejected the API key. Check MAGIC8_API_KEY.` |
 | Other HTTP error | `http_error` | `The decision model returned an error (HTTP <code>).` plus the server message with `--verbose` |
