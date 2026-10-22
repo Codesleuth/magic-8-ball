@@ -102,6 +102,13 @@ current directory. Copy `.env.example` to `.env` to start.
 | `MAGIC8_MODEL` | empty (no `model` field; the server picks) |
 | `MAGIC8_TIMEOUT_MS` | `5000` |
 
+A variable set to an empty value counts as not set, and its `.env` value is
+not used. `MAGIC8_TIMEOUT_MS` takes the digits `0`-`9` only (no `_`, sign or
+spaces), with a value above 0. The base URL (`--backend` or
+`MAGIC8_BASE_URL`) must start with `http://` or `https://` and have a host.
+A value that breaks these rules is a usage error (exit `1`); see
+[SPEC section 6](docs/SPEC.md#6-configuration) for the full rules.
+
 To use hosted Jev instead, set `MAGIC8_BASE_URL=https://api.typesafe.ai`,
 `MAGIC8_API_KEY` and `MAGIC8_MODEL=jev-latest`. See
 [docs/decision-models.md](docs/decision-models.md).
