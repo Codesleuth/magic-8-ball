@@ -10,7 +10,7 @@ DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_TIMEOUT_MS = 5000
 MAX_TIMEOUT_MS = 2**31 - 1  # SPEC 6: larger values are used as this; it fits every platform
 
-_DIGIT_RUNS = re.compile(r"\d+")
+_DIGIT_GROUPS = re.compile(r"\d(?:_?\d)*")  # digits, with the single "_" int() allows between them
 
 
 class ConfigError(Exception):
@@ -53,11 +53,11 @@ def _parse_timeout_ms(raw: str) -> int | None:
     """The value as int() reads it, capped at MAX_TIMEOUT_MS; None if it is not above 0.
 
     int() refuses more than 4300 digits, but such a value is still a whole number (SPEC 6).
-    So int() checks the form on a copy with each run of digits cut to one digit, and the
-    digits are read here.
+    So int() checks the form on a copy with each group of digits (and the "_" between them)
+    cut to one digit, and the digits are read here.
     """
     try:
-        sign = int(_DIGIT_RUNS.sub("1", raw))
+        sign = int(_DIGIT_GROUPS.sub("1", raw))
     except ValueError:
         return None
     digits = "".join(str(unicodedata.decimal(c)) for c in raw if c.isdecimal()).lstrip("0")
