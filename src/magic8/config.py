@@ -1,7 +1,6 @@
 """Configuration from flags, the environment and a .env file."""
 
 import re
-import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,7 +9,8 @@ DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_TIMEOUT_MS = 5000
 MAX_TIMEOUT_MS = 2**31 - 1  # SPEC 6: larger values are used as this; it fits every platform
 
-_DIGIT_GROUPS = re.compile(r"\d(?:_?\d)*")  # digits, with the single "_" int() allows between them
+_DIGITS = re.compile(r"[0-9]+")  # ASCII only: \d and str.isdigit() also take other scripts
+_HTTP_SCHEME = re.compile(r"https?://", re.IGNORECASE)
 
 
 class ConfigError(Exception):
@@ -50,20 +50,39 @@ def read_dotenv(path: Path) -> dict[str, str]:
 
 
 def _parse_timeout_ms(raw: str) -> int | None:
-    """The value as int() reads it, capped at MAX_TIMEOUT_MS; None if it is not above 0.
-
-    int() refuses more than 4300 digits, but such a value is still a whole number (SPEC 6).
-    So int() checks the form on a copy with each group of digits (and the "_" between them)
-    cut to one digit, and the digits are read here.
-    """
-    try:
-        sign = int(_DIGIT_GROUPS.sub("1", raw))
-    except ValueError:
+    """The value, capped at MAX_TIMEOUT_MS; None unless it is ASCII digits above 0 (SPEC 6)."""
+    if not _DIGITS.fullmatch(raw):
         return None
-    digits = "".join(str(unicodedata.decimal(c)) for c in raw if c.isdecimal()).lstrip("0")
-    if sign < 0 or not digits:
+    digits = raw.lstrip("0")
+    if not digits:
         return None
     return min(int(digits[:11]), MAX_TIMEOUT_MS)  # 11 digits are already above the cap
+
+
+def _base_url_problem(url: str) -> str | None:
+    """Why the base URL is malformed, by the first SPEC 6 rule it breaks; None if it is not."""
+    if any(c <= " " or c == "\x7f" for c in url):
+        return "must not hold spaces or control characters"
+    scheme = _HTTP_SCHEME.match(url)
+    if not scheme:
+        return "must start with http:// or https://"
+    if "?" in url or "#" in url:
+        return "must not hold a query (?) or a fragment (#)"
+    authority = url[scheme.end() :].partition("/")[0].rpartition("@")[2]
+    if authority.startswith("["):
+        host, bracket, port = authority[1:].partition("]")
+        if not bracket or (port and not port.startswith(":")):
+            return "must have a host"
+        port = port[1:]
+    else:
+        host, _, port = authority.partition(":")
+    if not host:
+        return "must have a host"
+    if port:
+        digits = port.lstrip("0") if _DIGITS.fullmatch(port) else ""
+        if not 1 <= len(digits) <= 5 or int(digits) > 65535:
+            return "must have a port from 1 to 65535"
+    return None
 
 
 def load_config(
@@ -82,6 +101,10 @@ def load_config(
         return merged.get(name, "")
 
     url = pick(base_url, "MAGIC8_BASE_URL") or DEFAULT_BASE_URL
+    problem = _base_url_problem(url)
+    if problem:
+        name = "--backend" if base_url else "MAGIC8_BASE_URL"
+        raise ConfigError(f"{name} {problem}, got {url!r}.")
     api_key = pick(None, "MAGIC8_API_KEY") or None
     model_name = pick(model, "MAGIC8_MODEL") or None
 
@@ -92,7 +115,7 @@ def load_config(
         parsed = _parse_timeout_ms(raw)
         if parsed is None:
             raise ConfigError(
-                f"MAGIC8_TIMEOUT_MS must be a positive whole number of milliseconds, got {raw!r}."
+                f"MAGIC8_TIMEOUT_MS must be digits 0-9 only, with a value above 0, got {raw!r}."
             )
         timeout_ms = parsed
 
